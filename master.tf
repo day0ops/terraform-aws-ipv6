@@ -16,12 +16,16 @@ module "eks_ipv6_1" {
   source = "./modules/eks-ipv6"
   count  = var.enable_ipv6_1 ? 1 : 0
 
-  owner                      = var.owner
-  region                     = var.region
-  max_availability_zones     = var.max_availability_zones_per_cluster
-  kubernetes_version         = var.kubernetes_version
-  create_cni_ipv6_iam_policy = var.create_cni_ipv6_iam_policy
-  enable_dns64               = var.enable_dns64
+  owner                           = var.owner
+  region                          = var.region
+  max_availability_zones          = var.max_availability_zones_per_cluster
+  kubernetes_version              = var.kubernetes_version
+  allow_istio_mutation_webhook_sg = true
+  ec2_ssh_key                     = var.ec2_ssh_key
+  create_cni_ipv6_iam_policy      = var.create_cni_ipv6_iam_policy
+  enable_dns64                    = var.enable_dns64
+  enable_bastion_access           = var.enable_bastion
+  bastion_security_group_id       = var.enable_bastion ? module.bastion_standalone[0].bastion_security_group_id : null
 
   tags = local.tags
 }
@@ -36,8 +40,9 @@ module "eks_ipv6_2" {
   kubernetes_version              = var.kubernetes_version
   allow_istio_mutation_webhook_sg = true
   ec2_ssh_key                     = var.ec2_ssh_key
-  enable_bastion                  = true
   enable_dns64                    = var.enable_dns64
+  enable_bastion_access           = var.enable_bastion
+  bastion_security_group_id       = var.enable_bastion ? module.bastion_standalone[0].bastion_security_group_id : null
 
   tags = local.tags
 }
@@ -51,7 +56,26 @@ module "eks_ipv6_3" {
   max_availability_zones          = var.max_availability_zones_per_cluster
   kubernetes_version              = var.kubernetes_version
   allow_istio_mutation_webhook_sg = true
+  ec2_ssh_key                     = var.ec2_ssh_key
   enable_dns64                    = var.enable_dns64
+  enable_bastion_access           = var.enable_bastion
+  bastion_security_group_id       = var.enable_bastion ? module.bastion_standalone[0].bastion_security_group_id : null
+
+  tags = local.tags
+}
+
+# Standalone bastion host - independent of EKS modules
+module "bastion_standalone" {
+  source = "./modules/bastion"
+  count  = var.enable_bastion ? 1 : 0
+
+  enable                     = var.enable_bastion
+  owner                      = var.owner
+  prefix_name                = try(format("%v-bastion", var.owner), "bastion")
+  bastion_ssh_key            = var.ec2_ssh_key
+  vpc_id                     = try(module.eks_ipv6_1[0].vpc_id, try(module.eks_ipv6_2[0].vpc_id, module.eks_ipv6_3[0].vpc_id))
+  elb_subnets                = try(module.eks_ipv6_1[0].public_subnets, try(module.eks_ipv6_2[0].public_subnets, module.eks_ipv6_3[0].public_subnets))
+  auto_scaling_group_subnets = try(module.eks_ipv6_1[0].public_subnets, try(module.eks_ipv6_2[0].public_subnets, module.eks_ipv6_3[0].public_subnets))
 
   tags = local.tags
 }

@@ -24,8 +24,8 @@ kubernetes_version                 = "1.24"
 ### Bastion Host
 
 A bastion host can be provisioned by setting `enable_bastion = true` in `master.tf` in each individual VPC.
-When this enabled make sure to also set `ec2_ssh_key` to the key pair.
-This will enable SSH access to the nodes in the private subnet.
+When this is enabled make sure to also set `ec2_ssh_key` to the key pair set in the AWS console. Typically this will give you a public key to load on your machine whichh you can copy to `~/.ssh/public_key.pem`. You may need to set the permissions to `400` for this pem file.
+This will enable SSH access in bastion host and enable jumpto the nodes in the private subnet.
 
 Locally SSH configuration can be set to jump to the node via bastion host. For e.g.
 
@@ -44,4 +44,10 @@ Host private-node
   IdentityFile ~/.ssh/public_key.pem
   IdentitiesOnly yes
   ProxyJump bastion-host
+```
+
+followed by the command,
+
+```
+ssh private-node
 ```

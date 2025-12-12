@@ -22,7 +22,7 @@ data "aws_iam_policy" "cni_ipv6_policy" {
 
 module "vpc" {
   source  = "terraform-aws-modules/vpc/aws"
-  version = "~> 4.0.2"
+  version = "~> 6.0"
 
   name = local.name
   cidr = local.vpc_cidr
@@ -65,42 +65,30 @@ module "vpc" {
   tags = var.tags
 }
 
-module "bastion" {
-  source = "../bastion"
-
-  enable                     = var.enable_bastion
-  owner                      = var.owner
-  prefix_name                = local.name
-  bastion_ssh_key            = var.ec2_ssh_key
-  vpc_id                     = module.vpc.vpc_id
-  elb_subnets                = module.vpc.public_subnets
-  auto_scaling_group_subnets = module.vpc.public_subnets
-
-  depends_on = [
-    module.vpc
-  ]
-
-  tags = var.tags
-}
-
 module "eks" {
   source  = "terraform-aws-modules/eks/aws"
-  version = "~> 19.15.3"
+  version = "~> 21.0"
 
-  cluster_name                   = local.name
-  cluster_version                = local.current_k8s_version
-  cluster_endpoint_public_access = true
+  name                                     = local.name
+  kubernetes_version                       = local.current_k8s_version
+  endpoint_public_access                   = true
+  enable_cluster_creator_admin_permissions = true
 
-  cluster_ip_family = "ipv6"
+  ip_family = "ipv6"
   # Created externally due to https://github.com/terraform-aws-modules/terraform-aws-eks/issues/2131
-  create_cni_ipv6_iam_policy = false #ar.create_cni_ipv6_iam_policy ? true : (length(data.aws_iam_policy.cni_ipv6_policy.arn) > 0 ? false : true)
+  create_cni_ipv6_iam_policy = false
 
-  create_cluster_primary_security_group_tags = true
+  create_primary_security_group_tags = true
 
-  cluster_addons = {
-    coredns    = {}
+  addons = {
+    coredns = {}
+    eks-pod-identity-agent = {
+      before_compute = true
+    }
     kube-proxy = {}
-    vpc-cni    = {}
+    vpc-cni = {
+      before_compute = true
+    }
   }
 
   # Enable IRSA
@@ -108,11 +96,14 @@ module "eks" {
 
   vpc_id     = module.vpc.vpc_id
   subnet_ids = module.vpc.private_subnets
+  tags       = var.tags
 
   eks_managed_node_groups = {
-    initial = {
-      name           = try(format("%v-ng", trim(local.name, 25)))
-      iam_role_name  = try(format("%v-ng", trim(local.name, 25)))
+    default = {
+      name                     = "${local.name}-ng"
+      use_name_prefix          = false
+      iam_role_use_name_prefix = false
+
       instance_types = [var.node_type]
 
       min_size     = var.min_nodes
@@ -120,14 +111,16 @@ module "eks" {
       desired_size = var.nodes
       key_name     = var.ec2_ssh_key
 
-      # Patching the /etc/hosts to add 'localhost' for ::1
-      pre_bootstrap_user_data = <<-EOT
-      sed -i 's/::1         localhost6 localhost6.localdomain6/::1         localhost localhost6 localhost6.localdomain6/' /etc/hosts
-      EOT
+      subnet_ids = module.vpc.private_subnets
+
+      tags = merge(
+        var.tags,
+        {
+          Name = "${local.name}-ng"
+        }
+      )
     }
   }
-
-  tags = var.tags
 }
 
 # ------------------------------ Security groups --------------------------------------
@@ -144,7 +137,7 @@ resource "aws_security_group_rule" "allow_istio_mutation_webhook" {
 }
 
 resource "aws_security_group_rule" "ingress_instances" {
-  count = var.enable_bastion ? 1 : 0
+  count = var.enable_bastion_access ? 1 : 0
 
   type                     = "ingress"
   security_group_id        = module.eks.node_security_group_id
@@ -152,7 +145,7 @@ resource "aws_security_group_rule" "ingress_instances" {
   from_port                = 22
   to_port                  = 22
   protocol                 = "tcp"
-  source_security_group_id = module.bastion.bastion_security_group_id
+  source_security_group_id = var.bastion_security_group_id
 }
 # -------------------------------------------------------------------------------------
 
@@ -464,20 +457,14 @@ resource "aws_iam_role_policy_attachment" "alb_ingress_controller_role_AmazonEKS
 # -------------------------------------------------------------------------------------
 
 # --------------------------------- Kubeconfig ----------------------------------------
-data "template_file" "kubeconfig_tpl" {
-  template = file("${path.module}/files/kubeconfig-template.tpl")
-
-  vars = {
+resource "local_file" "kubeconfig_tpl_renderer" {
+  content = templatefile("${path.module}/files/kubeconfig-template.tpl", {
     context                = local.kubeconfig_context
     endpoint               = module.eks.cluster_endpoint
     cluster_ca_certificate = module.eks.cluster_certificate_authority_data
     cluster_name           = local.name
     region                 = var.region
-  }
-}
-
-resource "local_file" "kubeconfig_tpl_renderer" {
-  content  = data.template_file.kubeconfig_tpl.rendered
+  })
   filename = "${path.module}/output/kubeconfig-${local.kubeconfig_context}"
 }
 # -------------------------------------------------------------------------------------
