@@ -74,10 +74,16 @@ variable "ec2_ssh_key" {
   default     = null
 }
 
-variable "enable_bastion" {
-  description = "Enable bastion host in the VPC (Default: `false`)"
+variable "enable_bastion_access" {
+  description = "Enable SSH access from bastion host to EKS nodes (Default: `false`)"
   type        = bool
   default     = false
+}
+
+variable "bastion_security_group_id" {
+  description = "Security group ID of the bastion host. Required if enable_bastion_access is true (Default: `null`)"
+  type        = string
+  default     = null
 }
 
 variable "enable_dns64" {

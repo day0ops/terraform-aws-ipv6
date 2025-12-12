@@ -47,9 +47,9 @@ variable "region" {
 }
 
 variable "aws_profile" {
-  description = "AWS cli profile (Default: `default`)"
+  description = "AWS cli profile. Leave empty to use default credential chain (environment variables, IAM roles, etc.)"
   type        = string
-  default     = "default"
+  default     = ""
 }
 
 variable "max_availability_zones_per_cluster" {
@@ -100,6 +100,12 @@ variable "enable_ipv6_3" {
 
 variable "enable_dns64" {
   description = "DNS queries made to the Amazon-provided DNS Resolver in this subnet should return synthetic IPv6 addresses for IPv4-only destinations (Default: `true`)"
+  type        = bool
+  default     = true
+}
+
+variable "enable_bastion" {
+  description = "Enable bastion host independently of EKS modules (Default: `true`). Bastion will use the first available VPC (eks_ipv6_1, eks_ipv6_2, or eks_ipv6_3)"
   type        = bool
   default     = true
 }
